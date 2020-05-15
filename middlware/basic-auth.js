@@ -1,32 +1,36 @@
-const bcrypt = require('bcryptjs');
+const AuthService = require('../src/auth/auth-service');
 
 function requireBasicAuth(req, res, next) {
-  const authValue = req.get('Authorization') || '';
+  const authToken = req.get('Authorization') || '';
 
-  if (!authValue.toLowerCase().startsWith('basic ')) {
-    return res.status(401).json({ error: 'Missing basic auth' });
+  let basicToken;
+  if (!authToken.toLowerCase().startsWith('basic ')) {
+    return res.status(401).json({ error: 'Missing basic token' });
+  } else {
+    basicToken = authToken.slice('basic '.length, authToken.length);
   }
 
-  const token = authValue.split(' ')[1];
+  const [tokenUserName, tokenPassword] = AuthService.parseBasicToken(basicToken);
 
-  const [ tokenUsername, tokenPassword ] = Buffer
-    .from(token, 'base64')
-    .toString('ascii')
-    .split(':');
+  if (!tokenUserName || !tokenPassword) {
+    return res.status(401).json({ error: 'Unauthorized request' });
+  }
 
-  req.app.get('db')('thingful_users')
-    .select('*')
-    .where({ user_name: tokenUsername })
-    .first()
+  AuthService.getUserWithUserName(
+    req.app.get('db'),
+    tokenUserName
+  )
     .then(user => {
       if (!user) {
-        return res.status(401).json({ error: 'Invalid credentials' });
+        return res.status(401).json({ error: 'Unauthorized request' });
       }
-      return bcrypt.compare(tokenPassword, user.password)
-        .then(passwordMatch => {
-          if (!passwordMatch) {
+
+      return AuthService.comparePasswords(tokenPassword, user.password)
+        .then(passwordsMatch => {
+          if (!passwordsMatch) {
             return res.status(401).json({ error: 'Unauthorized request' });
           }
+
           req.user = user;
           next();
         });
